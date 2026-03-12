@@ -53,7 +53,7 @@ export default function App() {
   const guests = isDemo ? demo.guests : appGuests;
   const assignments = isDemo ? demo.seatAssignments : appAssignments;
 
-  const seating = useSeating(assignments, guests, tables);
+  const seating = useSeating(assignments, guests);
 
   React.useEffect(() => {
     if (user && !loading) {

@@ -1,11 +1,10 @@
 import { useState, useCallback } from 'react';
-import { SeatAssignment, Guest, Table } from '../types';
+import { SeatAssignment, Guest } from '../types';
 import { checkSameGenderAdjacent } from '../utils/validation';
 
 export function useSeating(
   initialAssignments: SeatAssignment[] = [],
-  guests: Guest[] = [],
-  _tables: Table[] = []
+  guests: Guest[] = []
 ) {
   const [assignments, setAssignments] = useState<SeatAssignment[]>(initialAssignments);
   const [showGenderWarnings, setShowGenderWarnings] = useState(true);
