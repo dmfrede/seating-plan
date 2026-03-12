@@ -1,0 +1,1 @@
+{\n  "name": "seating-plan",\n  "version": "1.0.0",\n  "main": "index.js",\n  "scripts": {\n    "start": "vite",\n    "build": "vite build",\n    "serve": "vite preview"\n  },\n  "devDependencies": {\n    "vite": "latest",\n    "typescript": "latest"\n  }\n}
