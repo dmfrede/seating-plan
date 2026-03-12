@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useDemo } from '../hooks/useDemo';
 import { useSeating } from '../hooks/useSeating';
@@ -26,11 +26,11 @@ interface AppState {
   seatAssignments: SeatAssignment[];
 }
 
-let tableCounter = 1;
 
 export default function App() {
   const { user, loading, login, signup, logout, error: authError } = useAuth();
   const demo = useDemo();
+  const tableCounterRef = useRef(1);
   
   const [mode, setMode] = useState<AppMode>('auth');
   const [authView, setAuthView] = useState<AuthView>('login');
@@ -100,7 +100,7 @@ export default function App() {
       addToast('Sign up to add custom tables!', 'info');
       return;
     }
-    const num = tableCounter++;
+    const num = tableCounterRef.current++;
     const newTable: Table = {
       id: `table-${Date.now()}`,
       type,
@@ -272,13 +272,14 @@ export default function App() {
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="bg-white border-b border-stone-200 px-3 py-2 flex items-center justify-between">
             <span className="text-sm text-stone-500">
-              Drag tables to position · Click to select · Scroll to zoom
+              Drag tables to position · Click to select · Scroll to zoom · Alt+drag to pan
             </span>
             <ExportButton
               guests={guests}
               tables={tables}
               seatAssignments={assignments}
               eventName="agerup-farm-event"
+              onError={msg => addToast(msg, 'error')}
             />
           </div>
           

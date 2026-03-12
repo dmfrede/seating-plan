@@ -8,9 +8,10 @@ interface ExportButtonProps {
   seatAssignments: SeatAssignment[];
   canvasRef?: React.RefObject<HTMLElement>;
   eventName?: string;
+  onError?: (message: string) => void;
 }
 
-export default function ExportButton({ guests, tables, seatAssignments, canvasRef, eventName }: ExportButtonProps) {
+export default function ExportButton({ guests, tables, seatAssignments, canvasRef, eventName, onError }: ExportButtonProps) {
   const [open, setOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -34,7 +35,8 @@ export default function ExportButton({ guests, tables, seatAssignments, canvasRe
     try {
       await exportSeatingChartPDF(canvasRef.current, `${name}-seating-chart.pdf`);
     } catch {
-      alert('PDF export failed. Please try again.');
+      const msg = 'PDF export failed. Please try again.';
+      if (onError) onError(msg); else console.error(msg);
     } finally {
       setExporting(false);
       setOpen(false);

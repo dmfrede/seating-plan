@@ -1,36 +1,44 @@
 import { useState, useCallback } from 'react';
 
+interface UndoRedoState<T> {
+  history: T[];
+  index: number;
+}
+
 export function useUndoRedo<T>(initialState: T) {
-  const [history, setHistory] = useState<T[]>([initialState]);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [state, setState] = useState<UndoRedoState<T>>({
+    history: [initialState],
+    index: 0,
+  });
 
-  const current = history[currentIndex];
-  const canUndo = currentIndex > 0;
-  const canRedo = currentIndex < history.length - 1;
+  const current = state.history[state.index];
+  const canUndo = state.index > 0;
+  const canRedo = state.index < state.history.length - 1;
 
+  // Single setState call avoids the race condition between setHistory and setCurrentIndex
   const push = useCallback((newState: T) => {
-    setHistory(prev => {
-      const newHistory = prev.slice(0, currentIndex + 1);
-      return [...newHistory, newState];
+    setState(prev => {
+      const newHistory = prev.history.slice(0, prev.index + 1);
+      return { history: [...newHistory, newState], index: prev.index + 1 };
     });
-    setCurrentIndex(prev => prev + 1);
-  }, [currentIndex]);
+  }, []);
 
   const undo = useCallback(() => {
-    if (canUndo) {
-      setCurrentIndex(prev => prev - 1);
-    }
-  }, [canUndo]);
+    setState(prev => {
+      if (prev.index <= 0) return prev;
+      return { ...prev, index: prev.index - 1 };
+    });
+  }, []);
 
   const redo = useCallback(() => {
-    if (canRedo) {
-      setCurrentIndex(prev => prev + 1);
-    }
-  }, [canRedo]);
+    setState(prev => {
+      if (prev.index >= prev.history.length - 1) return prev;
+      return { ...prev, index: prev.index + 1 };
+    });
+  }, []);
 
-  const reset = useCallback((state: T) => {
-    setHistory([state]);
-    setCurrentIndex(0);
+  const reset = useCallback((newState: T) => {
+    setState({ history: [newState], index: 0 });
   }, []);
 
   return { current, push, undo, redo, canUndo, canRedo, reset };
