@@ -6,6 +6,7 @@ import { useSeating } from '../../hooks/useSeating';
 import { useUndoRedo } from '../../hooks/useUndoRedo';
 import { Guest, Table, SeatAssignment, TableType, Toast } from '../../types';
 import { metersToPixels } from '../../utils/canvas';
+import { checkSameGenderAdjacent } from '../../utils/validation';
 import { DEFAULT_VENUE_WIDTH, DEFAULT_VENUE_HEIGHT } from '../../utils/constants';
 
 import TopBar from '../UI/TopBar';
@@ -160,6 +161,29 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
     // Reserved for future seat assignment popover
   }, []);
 
+  const handleAssignGuest = useCallback((guestId: string, tableId: string, seatIndex: number) => {
+    if (isDemo) {
+      demo.assignGuest(guestId, tableId, seatIndex);
+      return;
+    }
+    setAppAssignments(prev => {
+      const next = [
+        ...prev.filter(a => a.guestId !== guestId && !(a.tableId === tableId && a.seatIndex === seatIndex)),
+        { guestId, tableId, seatIndex },
+      ];
+      pushHistory({ tables: appTables, guests: appGuests, seatAssignments: next });
+      return next;
+    });
+  }, [isDemo, demo, appTables, appGuests, pushHistory]);
+
+  const hasGenderWarning = useCallback((tableId: string): boolean => {
+    if (!showGenderWarnings) return false;
+    const tableAssignments = assignments
+      .filter(a => a.tableId === tableId)
+      .map(a => ({ guestId: a.guestId, seatIndex: a.seatIndex }));
+    return checkSameGenderAdjacent(tableId, tableAssignments, guests);
+  }, [assignments, guests, showGenderWarnings]);
+
   const totalSeats = tables.reduce((sum, t) => sum + t.seats, 0);
   const assignedCount = assignments.length;
 
@@ -224,8 +248,9 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
             onSelectTable={setSelectedTableId}
             onMoveTable={handleMoveTable}
             onSeatClick={handleSeatClick}
+            onAssignGuest={handleAssignGuest}
             showGenderWarnings={showGenderWarnings}
-            hasGenderWarning={seating.hasGenderWarning}
+            hasGenderWarning={hasGenderWarning}
           />
         </div>
 

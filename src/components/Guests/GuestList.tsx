@@ -104,7 +104,12 @@ export default function GuestList({
               return (
                 <li
                   key={guest.id}
-                  className="px-3 py-2 flex items-center justify-between hover:bg-stone-50 group"
+                  draggable={!isAssigned}
+                  onDragStart={e => {
+                    e.dataTransfer.setData('guestId', guest.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
+                  className={`px-3 py-2 flex items-center justify-between hover:bg-stone-50 group ${!isAssigned ? 'cursor-grab active:cursor-grabbing' : ''}`}
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="text-stone-400 text-xs w-4 text-center">

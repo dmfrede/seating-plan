@@ -22,6 +22,7 @@ interface VenueCanvasProps {
   onSelectTable: (tableId: string | null) => void;
   onMoveTable: (tableId: string, x: number, y: number) => void;
   onSeatClick: (tableId: string, seatIndex: number) => void;
+  onAssignGuest: (guestId: string, tableId: string, seatIndex: number) => void;
   showGenderWarnings: boolean;
   hasGenderWarning: (tableId: string) => boolean;
 }
@@ -35,6 +36,7 @@ export default function VenueCanvas({
   selectedTableId,
   onSelectTable,
   onMoveTable,
+  onAssignGuest,
   showGenderWarnings,
   hasGenderWarning,
 }: VenueCanvasProps) {
@@ -196,6 +198,43 @@ export default function VenueCanvas({
     setScale(s => Math.min(Math.max(s * delta, 0.3), 3));
   };
 
+  const findSeatAt = (x: number, y: number): { tableId: string; seatIndex: number } | null => {
+    for (const table of [...tables].reverse()) {
+      const seatPositions = getSeatPositions(table);
+      for (let i = 0; i < seatPositions.length; i++) {
+        const sp = seatPositions[i];
+        const sx = table.position.x + sp.x;
+        const sy = table.position.y + sp.y;
+        const dx = x - sx;
+        const dy = y - sy;
+        if (dx * dx + dy * dy <= 12 * 12) {
+          return { tableId: table.id, seatIndex: i };
+        }
+      }
+    }
+    return null;
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const guestId = e.dataTransfer.getData('guestId');
+    if (!guestId) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left - offset.x) / scale;
+    const y = (e.clientY - rect.top - offset.y) / scale;
+    const seat = findSeatAt(x, y);
+    if (seat) {
+      onAssignGuest(guestId, seat.tableId, seat.seatIndex);
+    }
+  };
+
   return (
     <div ref={containerRef} className="relative flex-1 overflow-hidden bg-stone-100">
       <canvas
@@ -207,6 +246,8 @@ export default function VenueCanvas({
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onWheel={handleWheel}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
       />
       
       <div className="absolute bottom-4 right-4 flex flex-col gap-1">
