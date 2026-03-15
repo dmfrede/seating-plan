@@ -2,7 +2,6 @@ import React, { useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useDemo } from '../../hooks/useDemo';
-import { useSeating } from '../../hooks/useSeating';
 import { useUndoRedo } from '../../hooks/useUndoRedo';
 import { Guest, Table, SeatAssignment, TableType, Toast } from '../../types';
 import { metersToPixels } from '../../utils/canvas';
@@ -36,6 +35,7 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [showGenderWarnings, setShowGenderWarnings] = useState(true);
+  const [showGenderHighlight, setShowGenderHighlight] = useState(false);
 
   const [appTables, setAppTables] = useState<Table[]>([]);
   const [appGuests, setAppGuests] = useState<Guest[]>([]);
@@ -50,8 +50,6 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
   const tables = isDemo ? demo.tables : appTables;
   const guests = isDemo ? demo.guests : appGuests;
   const assignments = isDemo ? demo.seatAssignments : appAssignments;
-
-  const seating = useSeating(assignments, guests);
 
   const addToast = useCallback((message: string, type: Toast['type'] = 'info') => {
     const id = Date.now().toString();
@@ -134,16 +132,39 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
     addToast(`${guest.name} ${guest.surname} added!`, 'success');
   }, [isDemo, demo, appTables, appAssignments, pushHistory, addToast]);
 
+  const handleAddGuests = useCallback((newGuests: Omit<Guest, 'id'>[]) => {
+    if (isDemo) {
+      demo.addGuests(newGuests);
+      addToast(`${newGuests.length} guests imported!`, 'success');
+      return;
+    }
+    const withIds = newGuests.map((g, i) => ({ ...g, id: `guest-${Date.now()}-${i}` }));
+    setAppGuests(prev => {
+      const next = [...prev, ...withIds];
+      pushHistory({ tables: appTables, guests: next, seatAssignments: appAssignments });
+      return next;
+    });
+    addToast(`${newGuests.length} guests imported!`, 'success');
+  }, [isDemo, demo, appTables, appAssignments, pushHistory, addToast]);
+
   const handleRemoveGuest = useCallback((guestId: string) => {
-    if (isDemo) return;
+    if (isDemo) {
+      demo.removeGuest(guestId);
+      return;
+    }
     const newAssignments = appAssignments.filter(x => x.guestId !== guestId);
     setAppAssignments(newAssignments);
     setAppGuests(prev => {
-      const next = prev.filter(g => g.id !== guestId);
+      const guestToRemove = prev.find(g => g.id === guestId);
+      let updated = prev;
+      if (guestToRemove?.partnerId) {
+        updated = prev.map(g => g.id === guestToRemove.partnerId ? { ...g, partnerId: undefined } : g);
+      }
+      const next = updated.filter(g => g.id !== guestId);
       pushHistory({ tables: appTables, guests: next, seatAssignments: newAssignments });
       return next;
     });
-  }, [isDemo, appTables, appAssignments, pushHistory]);
+  }, [isDemo, demo, appTables, appAssignments, pushHistory]);
 
   const handleUnassignGuest = useCallback((guestId: string) => {
     if (isDemo) {
@@ -156,6 +177,31 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
       return next;
     });
   }, [isDemo, demo, appTables, appGuests, pushHistory]);
+
+  const handleUpdateGuest = useCallback((guestId: string, updates: Partial<Guest>) => {
+    if (isDemo) {
+      demo.updateGuest(guestId, updates);
+      return;
+    }
+    setAppGuests(prev => {
+      const next = prev.map(g => g.id === guestId ? { ...g, ...updates } : g);
+      pushHistory({ tables: appTables, guests: next, seatAssignments: appAssignments });
+      return next;
+    });
+  }, [isDemo, demo, appTables, appAssignments, pushHistory]);
+
+  const handleUpdateGuests = useCallback((updates: Array<{ id: string; updates: Partial<Guest> }>) => {
+    if (isDemo) {
+      demo.updateGuests(updates);
+      return;
+    }
+    setAppGuests(prev => {
+      const map = new Map(updates.map(u => [u.id, u.updates]));
+      const next = prev.map(g => map.has(g.id) ? { ...g, ...map.get(g.id)! } : g);
+      pushHistory({ tables: appTables, guests: next, seatAssignments: appAssignments });
+      return next;
+    });
+  }, [isDemo, demo, appTables, appAssignments, pushHistory]);
 
   const handleSeatClick = useCallback((_tableId: string, _seatIndex: number) => {
     // Reserved for future seat assignment popover
@@ -210,6 +256,8 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
         canRedo={canRedo}
         showGenderWarnings={showGenderWarnings}
         onToggleGenderWarnings={() => setShowGenderWarnings(v => !v)}
+        showGenderHighlight={showGenderHighlight}
+        onToggleGenderHighlight={() => setShowGenderHighlight(v => !v)}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -224,7 +272,7 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
           />
         </div>
 
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           <div className="bg-white border-b border-stone-200 px-3 py-2 flex items-center justify-between">
             <span className="text-sm text-stone-500">
               Drag tables to position · Click to select · Scroll to zoom · Alt+drag to pan
@@ -251,17 +299,27 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
             onAssignGuest={handleAssignGuest}
             showGenderWarnings={showGenderWarnings}
             hasGenderWarning={hasGenderWarning}
+            showGenderHighlight={showGenderHighlight}
           />
         </div>
 
-        <div className="w-64 border-l border-stone-200 bg-white flex flex-col overflow-hidden">
+        <div className="w-[540px] border-l border-stone-200 bg-white flex flex-col overflow-hidden">
           <GuestList
             guests={guests}
             seatAssignments={assignments}
             tables={tables}
             onAddGuest={handleAddGuest}
+            onAddGuests={handleAddGuests}
             onRemoveGuest={handleRemoveGuest}
             onUnassign={handleUnassignGuest}
+            onUpdateGuest={handleUpdateGuest}
+            onUpdateGuests={handleUpdateGuests}
+            showGenderHighlight={showGenderHighlight}
+            onToggleGenderHighlight={() => setShowGenderHighlight(v => !v)}
+            onUndo={!isDemo ? undo : undefined}
+            onRedo={!isDemo ? redo : undefined}
+            canUndo={canUndo}
+            canRedo={canRedo}
           />
         </div>
       </div>

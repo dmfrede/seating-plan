@@ -29,6 +29,10 @@ export const COLORS = {
   grid: '#e8e0d5',
   venue: '#faf8f5',
   warning: '#fbbf24',
+  genderMaleBg: '#bfdbfe',
+  genderFemaleBg: '#fecdd3',
+  genderMaleCanvas: '#3b82f6',
+  genderFemaleCanvas: '#f43f5e',
 };
 
 export const DEMO_GUEST_NAMES = [

@@ -1,15 +1,15 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { Table, Guest, SeatAssignment } from '../../types';
-import { 
-  metersToPixels, 
-  getTableDimensions, 
+import {
+  metersToPixels,
+  getTableDimensions,
   getSeatPositions,
   snapToGrid
 } from '../../utils/canvas';
-import { 
-  COLORS, 
+import {
+  COLORS,
   PIXELS_PER_METER,
-  GRID_SIZE_CM 
+  GRID_SIZE_CM
 } from '../../utils/constants';
 
 interface VenueCanvasProps {
@@ -25,6 +25,7 @@ interface VenueCanvasProps {
   onAssignGuest: (guestId: string, tableId: string, seatIndex: number) => void;
   showGenderWarnings: boolean;
   hasGenderWarning: (tableId: string) => boolean;
+  showGenderHighlight: boolean;
 }
 
 export default function VenueCanvas({
@@ -39,6 +40,7 @@ export default function VenueCanvas({
   onAssignGuest,
   showGenderWarnings,
   hasGenderWarning,
+  showGenderHighlight,
 }: VenueCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -89,16 +91,16 @@ export default function VenueCanvas({
 
     // Tables
     for (const table of tables) {
-      drawTable(ctx, table, guests, seatAssignments, selectedTableId, hasGenderWarning, showGenderWarnings);
+      drawTable(ctx, table, guests, seatAssignments, selectedTableId, hasGenderWarning, showGenderWarnings, showGenderHighlight);
     }
 
     ctx.restore();
-  }, [tables, guests, seatAssignments, selectedTableId, scale, offset, vW, vH, gridPx, hasGenderWarning, showGenderWarnings]);
+  }, [tables, guests, seatAssignments, selectedTableId, scale, offset, vW, vH, gridPx, hasGenderWarning, showGenderWarnings, showGenderHighlight]);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    
+
     const resizeObserver = new ResizeObserver(() => {
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -129,7 +131,7 @@ export default function VenueCanvas({
       const dims = getTableDimensions(table.type);
       const dx = x - table.position.x;
       const dy = y - table.position.y;
-      
+
       if (table.type === 'round') {
         const r = dims.width / 2;
         if (dx * dx + dy * dy <= r * r) return table;
@@ -148,10 +150,10 @@ export default function VenueCanvas({
       setPanning({ startX: e.clientX - rect.left, startY: e.clientY - rect.top, origOffsetX: offset.x, origOffsetY: offset.y });
       return;
     }
-    
+
     const pos = getCanvasPos(e);
     const table = findTableAt(pos.x, pos.y);
-    
+
     if (table) {
       onSelectTable(table.id);
       setDragging({
@@ -176,7 +178,7 @@ export default function VenueCanvas({
       setOffset({ x: panning.origOffsetX + dx, y: panning.origOffsetY + dy });
       return;
     }
-    
+
     if (dragging) {
       const pos = getCanvasPos(e);
       const dx = pos.x - dragging.startX;
@@ -249,7 +251,7 @@ export default function VenueCanvas({
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       />
-      
+
       <div className="absolute bottom-4 right-4 flex flex-col gap-1">
         <button
           onClick={() => setScale(s => Math.min(s * 1.2, 3))}
@@ -270,7 +272,7 @@ export default function VenueCanvas({
           −
         </button>
       </div>
-      
+
       <div className="absolute bottom-4 left-4 text-xs text-stone-400 bg-white bg-opacity-80 px-2 py-1 rounded">
         {Math.round(scale * 100)}%
       </div>
@@ -285,7 +287,8 @@ function drawTable(
   assignments: SeatAssignment[],
   selectedTableId: string | null,
   hasGenderWarning: (tableId: string) => boolean,
-  showGenderWarnings: boolean
+  showGenderWarnings: boolean,
+  showGenderHighlight: boolean
 ) {
   const { position, type, id } = table;
   const isSelected = selectedTableId === id;
@@ -300,17 +303,35 @@ function drawTable(
   seatPositions.forEach((sp, seatIndex) => {
     const assignment = tableAssignments.find(a => a.seatIndex === seatIndex);
     const guest = assignment ? guests.find(g => g.id === assignment.guestId) : null;
-    
+
     ctx.beginPath();
     ctx.arc(sp.x, sp.y, 10, 0, Math.PI * 2);
-    ctx.fillStyle = guest ? COLORS.seatOccupied : COLORS.seatEmpty;
+
+    if (showGenderHighlight && guest) {
+      if (guest.gender === 'male') {
+        ctx.fillStyle = COLORS.genderMaleCanvas;
+      } else if (guest.gender === 'female') {
+        ctx.fillStyle = COLORS.genderFemaleCanvas;
+      } else {
+        // rainbow gradient for other/unspecified
+        const grad = ctx.createLinearGradient(sp.x - 10, sp.y, sp.x + 10, sp.y);
+        grad.addColorStop(0, '#fde68a');
+        grad.addColorStop(0.33, '#a7f3d0');
+        grad.addColorStop(0.66, '#bfdbfe');
+        grad.addColorStop(1, '#fbcfe8');
+        ctx.fillStyle = grad;
+      }
+    } else {
+      ctx.fillStyle = guest ? COLORS.seatOccupied : COLORS.seatEmpty;
+    }
+
     ctx.fill();
     ctx.strokeStyle = guest ? '#6ab368' : '#e8a090';
     ctx.lineWidth = 1.5;
     ctx.stroke();
-    
+
     if (guest) {
-      ctx.fillStyle = '#2d5c2a';
+      ctx.fillStyle = showGenderHighlight && (guest.gender === 'male' || guest.gender === 'female') ? '#fff' : '#2d5c2a';
       ctx.font = '8px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';

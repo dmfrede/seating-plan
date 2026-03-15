@@ -14,6 +14,8 @@ interface TopBarProps {
   canRedo?: boolean;
   showGenderWarnings: boolean;
   onToggleGenderWarnings: () => void;
+  showGenderHighlight: boolean;
+  onToggleGenderHighlight: () => void;
 }
 
 export default function TopBar({
@@ -30,6 +32,8 @@ export default function TopBar({
   canRedo,
   showGenderWarnings,
   onToggleGenderWarnings,
+  showGenderHighlight,
+  onToggleGenderHighlight,
 }: TopBarProps) {
   return (
     <header className="bg-white border-b border-stone-200 px-4 py-3 flex items-center justify-between">
@@ -41,7 +45,7 @@ export default function TopBar({
             <span className="text-stone-400 text-sm"> · Seating Planner</span>
           </div>
         </div>
-        
+
         {isDemo && (
           <span className="bg-amber-100 text-amber-700 text-xs font-medium px-2 py-1 rounded-full">
             Demo Mode
@@ -92,10 +96,10 @@ export default function TopBar({
               </svg>
             </button>
           )}
-          
+
           <button
             onClick={onToggleGenderWarnings}
-            title="Toggle gender warnings"
+            title="Toggle gender warnings (same-gender adjacent seating)"
             className={`p-1.5 rounded text-sm transition-colors ${
               showGenderWarnings
                 ? 'text-amber-600 bg-amber-50 hover:bg-amber-100'
@@ -103,6 +107,18 @@ export default function TopBar({
             }`}
           >
             ⚡
+          </button>
+
+          <button
+            onClick={onToggleGenderHighlight}
+            title="Toggle gender highlight colors"
+            className={`p-1.5 rounded text-sm transition-colors ${
+              showGenderHighlight
+                ? 'text-blue-600 bg-blue-50 hover:bg-blue-100'
+                : 'text-stone-400 hover:text-stone-600 hover:bg-stone-100'
+            }`}
+          >
+            🎨
           </button>
         </div>
 

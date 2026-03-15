@@ -28,6 +28,34 @@ export function useDemo() {
     return newGuest;
   }, []);
 
+  const addGuests = useCallback((newGuests: Omit<Guest, 'id'>[]) => {
+    const withIds = newGuests.map((g, i) => ({ ...g, id: `demo-guest-${Date.now()}-${i}` }));
+    setGuests(prev => [...prev, ...withIds]);
+  }, []);
+
+  const removeGuest = useCallback((guestId: string) => {
+    setGuests(prev => {
+      const guestToRemove = prev.find(g => g.id === guestId);
+      let updated = prev;
+      if (guestToRemove?.partnerId) {
+        updated = prev.map(g => g.id === guestToRemove.partnerId ? { ...g, partnerId: undefined } : g);
+      }
+      return updated.filter(g => g.id !== guestId);
+    });
+    setSeatAssignments(prev => prev.filter(a => a.guestId !== guestId));
+  }, []);
+
+  const updateGuest = useCallback((guestId: string, updates: Partial<Guest>) => {
+    setGuests(prev => prev.map(g => g.id === guestId ? { ...g, ...updates } : g));
+  }, []);
+
+  const updateGuests = useCallback((updates: Array<{ id: string; updates: Partial<Guest> }>) => {
+    setGuests(prev => {
+      const map = new Map(updates.map(u => [u.id, u.updates]));
+      return prev.map(g => map.has(g.id) ? { ...g, ...map.get(g.id)! } : g);
+    });
+  }, []);
+
   const moveTable = useCallback((tableId: string, x: number, y: number) => {
     setTables(prev => prev.map(t => t.id === tableId ? { ...t, position: { x, y } } : t));
   }, []);
@@ -39,6 +67,10 @@ export function useDemo() {
     assignGuest,
     unassignGuest,
     addGuest,
+    addGuests,
+    removeGuest,
+    updateGuest,
+    updateGuests,
     moveTable,
   };
 }

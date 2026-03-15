@@ -7,6 +7,8 @@ export interface Guest {
   gender: Gender;
   age?: number;
   notes?: string;
+  relationship?: 'single' | 'taken';
+  partnerId?: string;
   tableId?: string;
   seatIndex?: number;
 }
