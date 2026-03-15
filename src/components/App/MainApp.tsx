@@ -5,7 +5,6 @@ import { useDemo } from '../../hooks/useDemo';
 import { useUndoRedo } from '../../hooks/useUndoRedo';
 import { Guest, Table, SeatAssignment, TableType, Toast } from '../../types';
 import { metersToPixels } from '../../utils/canvas';
-import { checkSameGenderAdjacent } from '../../utils/validation';
 import { DEFAULT_VENUE_WIDTH, DEFAULT_VENUE_HEIGHT } from '../../utils/constants';
 
 import TopBar from '../UI/TopBar';
@@ -33,7 +32,6 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
-  const [showGenderWarnings, setShowGenderWarnings] = useState(true);
   const [showGenderHighlight, setShowGenderHighlight] = useState(false);
   const [canvasFontSize, setCanvasFontSize] = useState(() => {
     const s = localStorage.getItem('canvasFontSize');
@@ -219,14 +217,6 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
     pushSeating({ tables: appTables, seatAssignments: next });
   }, [isDemo, demo, appTables, appAssignments, pushSeating]);
 
-  const hasGenderWarning = useCallback((tableId: string): boolean => {
-    if (!showGenderWarnings) return false;
-    const tableAssignments = assignments
-      .filter(a => a.tableId === tableId)
-      .map(a => ({ guestId: a.guestId, seatIndex: a.seatIndex }));
-    return checkSameGenderAdjacent(tableId, tableAssignments, guests);
-  }, [assignments, guests, showGenderWarnings]);
-
   const totalSeats = tables.reduce((sum, t) => sum + t.seats, 0);
   const assignedCount = assignments.length;
 
@@ -244,10 +234,6 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
         userName={user?.displayName || user?.email || undefined}
         onLogout={handleLogout}
         onLogin={() => navigate('/login')}
-        showGenderWarnings={showGenderWarnings}
-        onToggleGenderWarnings={() => setShowGenderWarnings(v => !v)}
-        showGenderHighlight={showGenderHighlight}
-        onToggleGenderHighlight={() => setShowGenderHighlight(v => !v)}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -318,8 +304,6 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
             onAssignGuest={handleAssignGuest}
             onUnassignGuest={handleUnassignGuest}
             onShowToast={(msg) => addToast(msg)}
-            showGenderWarnings={showGenderWarnings}
-            hasGenderWarning={hasGenderWarning}
             showGenderHighlight={showGenderHighlight}
             canvasFontSize={canvasFontSize}
             onFontSizeChange={setCanvasFontSize}

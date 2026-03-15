@@ -25,8 +25,6 @@ interface VenueCanvasProps {
   onAssignGuest: (guestId: string, tableId: string, seatIndex: number) => void;
   onUnassignGuest: (guestId: string) => void;
   onShowToast: (message: string) => void;
-  showGenderWarnings: boolean;
-  hasGenderWarning: (tableId: string) => boolean;
   showGenderHighlight: boolean;
   canvasFontSize: number;
   onFontSizeChange: (size: number) => void;
@@ -44,8 +42,6 @@ export default function VenueCanvas({
   onAssignGuest,
   onUnassignGuest,
   onShowToast,
-  showGenderWarnings,
-  hasGenderWarning,
   showGenderHighlight,
   canvasFontSize,
   onFontSizeChange,
@@ -100,11 +96,11 @@ export default function VenueCanvas({
 
     // Tables
     for (const table of tables) {
-      drawTable(ctx, table, guests, seatAssignments, selectedTableId, hasGenderWarning, showGenderWarnings, showGenderHighlight, canvasFontSize);
+      drawTable(ctx, table, guests, seatAssignments, selectedTableId, showGenderHighlight, canvasFontSize);
     }
 
     ctx.restore();
-  }, [tables, guests, seatAssignments, selectedTableId, scale, offset, vW, vH, gridPx, hasGenderWarning, showGenderWarnings, showGenderHighlight, canvasFontSize]);
+  }, [tables, guests, seatAssignments, selectedTableId, scale, offset, vW, vH, gridPx, showGenderHighlight, canvasFontSize]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -338,8 +334,6 @@ function drawTable(
   guests: Guest[],
   assignments: SeatAssignment[],
   selectedTableId: string | null,
-  hasGenderWarning: (tableId: string) => boolean,
-  showGenderWarnings: boolean,
   showGenderHighlight: boolean,
   canvasFontSize: number
 ) {
@@ -347,7 +341,6 @@ function drawTable(
   const isSelected = selectedTableId === id;
   const dims = getTableDimensions(type);
   const tableAssignments = assignments.filter(a => a.tableId === id);
-  const hasWarning = showGenderWarnings && hasGenderWarning(id);
   const seatRadius = 10;
 
   ctx.save();
@@ -482,18 +475,6 @@ function drawTable(
       ctx.fillText(name, seatRadius + 2, 0);
       ctx.restore();
     });
-  }
-
-  if (hasWarning) {
-    ctx.beginPath();
-    ctx.arc(dims.width / 2 - 8, -dims.height / 2 + 8, 8, 0, Math.PI * 2);
-    ctx.fillStyle = '#fbbf24';
-    ctx.fill();
-    ctx.fillStyle = '#78350f';
-    ctx.font = 'bold 10px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('!', dims.width / 2 - 8, -dims.height / 2 + 8);
   }
 
   if (isSelected) {

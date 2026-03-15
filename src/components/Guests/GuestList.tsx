@@ -618,6 +618,11 @@ export default function GuestList({
             Guests ({guests.length})
           </h2>
           <div className="flex items-center gap-1 flex-wrap justify-end">
+            <button
+              onClick={onToggleGenderHighlight}
+              title="Toggle gender highlight"
+              className={`text-xs py-1 px-2 border rounded transition-colors ${showGenderHighlight ? 'border-blue-400 bg-blue-50 text-blue-600' : 'border-stone-200 text-stone-400 hover:bg-stone-50'}`}
+            >⚥</button>
             {(onUndo || onRedo) && (
               <>
                 <button onClick={onUndo} disabled={!canUndo} title="Undo (Ctrl+Z)" className="text-xs py-1 px-2 border border-stone-200 rounded text-stone-600 hover:bg-stone-50 disabled:opacity-30 disabled:cursor-not-allowed">↩</button>
@@ -625,11 +630,6 @@ export default function GuestList({
               </>
             )}
             <button onClick={() => setShowCsvModal(true)} title="Upload CSV" className="text-xs py-1 px-2 border border-stone-200 rounded text-stone-600 hover:bg-stone-50">📁 CSV</button>
-            <button
-              onClick={onToggleGenderHighlight}
-              title="Toggle gender highlight"
-              className={`text-xs py-1 px-2 border rounded transition-colors ${showGenderHighlight ? 'border-blue-400 bg-blue-50 text-blue-600' : 'border-stone-200 text-stone-400 hover:bg-stone-50'}`}
-            >🎨</button>
           </div>
         </div>
 
