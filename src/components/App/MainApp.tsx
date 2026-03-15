@@ -244,13 +244,6 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
         userName={user?.displayName || user?.email || undefined}
         onLogout={handleLogout}
         onLogin={() => navigate('/login')}
-        totalSeats={totalSeats}
-        assignedGuests={assignedCount}
-        totalGuests={guests.length}
-        onUndo={!isDemo ? undoSeating : undefined}
-        onRedo={!isDemo ? redoSeating : undefined}
-        canUndo={canUndoSeating}
-        canRedo={canRedoSeating}
         showGenderWarnings={showGenderWarnings}
         onToggleGenderWarnings={() => setShowGenderWarnings(v => !v)}
         showGenderHighlight={showGenderHighlight}
@@ -270,10 +263,39 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
         </div>
 
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-          <div className="bg-white border-b border-stone-200 px-3 py-2 flex items-center justify-between">
-            <span className="text-sm text-stone-500">
-              Drag tables to position · Click to select · Scroll to zoom · Alt+drag to pan
-            </span>
+          <div className="bg-white border-b border-stone-200 px-3 py-2 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-4 text-sm">
+              <div className="flex items-center gap-1">
+                <span className="text-stone-400">Seats:</span>
+                <span className="font-medium text-stone-700">{totalSeats}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-stone-400">Guests:</span>
+                <span className="font-medium text-stone-700">{guests.length}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-stone-400">Assigned:</span>
+                <span className={`font-medium ${assignedCount === guests.length && guests.length > 0 ? 'text-green-600' : 'text-amber-600'}`}>
+                  {assignedCount}/{guests.length}
+                </span>
+              </div>
+              {!isDemo && (
+                <>
+                  <button
+                    onClick={undoSeating}
+                    disabled={!canUndoSeating}
+                    title="Undo seating (Ctrl+Z)"
+                    className="text-xs py-1 px-2 border border-stone-200 rounded text-stone-600 hover:bg-stone-50 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >↩</button>
+                  <button
+                    onClick={redoSeating}
+                    disabled={!canRedoSeating}
+                    title="Redo seating (Ctrl+Y)"
+                    className="text-xs py-1 px-2 border border-stone-200 rounded text-stone-600 hover:bg-stone-50 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >↪</button>
+                </>
+              )}
+            </div>
             <ExportButton
               guests={guests}
               tables={tables}
