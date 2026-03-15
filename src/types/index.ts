@@ -11,6 +11,7 @@ export interface Guest {
   partnerId?: string;
   tableId?: string;
   seatIndex?: number;
+  roles?: string[];
 }
 
 export type TableType = 'round' | 'long1' | 'long2';

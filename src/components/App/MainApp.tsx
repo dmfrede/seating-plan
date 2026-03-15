@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useDemo } from '../../hooks/useDemo';
@@ -36,6 +36,14 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [showGenderWarnings, setShowGenderWarnings] = useState(true);
   const [showGenderHighlight, setShowGenderHighlight] = useState(false);
+  const [canvasFontSize, setCanvasFontSize] = useState(() => {
+    const s = localStorage.getItem('canvasFontSize');
+    return s ? parseInt(s) : 9;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('canvasFontSize', String(canvasFontSize));
+  }, [canvasFontSize]);
 
   const [appTables, setAppTables] = useState<Table[]>([]);
   const [appGuests, setAppGuests] = useState<Guest[]>([]);
@@ -297,9 +305,13 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
             onMoveTable={handleMoveTable}
             onSeatClick={handleSeatClick}
             onAssignGuest={handleAssignGuest}
+            onUnassignGuest={handleUnassignGuest}
+            onShowToast={(msg) => addToast(msg)}
             showGenderWarnings={showGenderWarnings}
             hasGenderWarning={hasGenderWarning}
             showGenderHighlight={showGenderHighlight}
+            canvasFontSize={canvasFontSize}
+            onFontSizeChange={setCanvasFontSize}
           />
         </div>
 

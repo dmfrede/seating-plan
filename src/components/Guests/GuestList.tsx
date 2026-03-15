@@ -3,10 +3,31 @@ import { Guest, Gender, SeatAssignment, Table } from '../../types';
 import GuestTableRow, { CellInput } from './GuestTableRow';
 import {
   GENDER_LABELS,
-  COL_NAME, COL_SURNAME, COL_GENDER, COL_AGE, COL_REL, COL_PARTNER, COL_NOTES, NUM_DATA_COLS,
+  COL_NAME, COL_SURNAME, COL_GENDER, COL_AGE, COL_REL, COL_PARTNER, COL_NOTES,
+  COL_TABLE, COL_ROLE, NUM_DATA_COLS,
 } from './guestTableConstants';
 import MassEditToolbar from './MassEditToolbar';
 import CsvUploadModal from './CsvUploadModal';
+
+const LS_COL_ORDER_KEY = 'guestListColumnOrder';
+const DEFAULT_COL_ORDER = Array.from({ length: NUM_DATA_COLS }, (_, i) => i);
+
+function loadColumnOrder(): number[] {
+  try {
+    const raw = localStorage.getItem(LS_COL_ORDER_KEY);
+    if (!raw) return DEFAULT_COL_ORDER;
+    const parsed = JSON.parse(raw) as number[];
+    // Validate: must be a permutation of 0..NUM_DATA_COLS-1
+    if (
+      Array.isArray(parsed) &&
+      parsed.length === NUM_DATA_COLS &&
+      [...parsed].sort((a, b) => a - b).every((v, i) => v === i)
+    ) {
+      return parsed;
+    }
+  } catch { /* ignore */ }
+  return DEFAULT_COL_ORDER;
+}
 
 interface DraftValues {
   name: string;
@@ -42,6 +63,25 @@ interface GuestListProps {
 type SortColumn = 'name' | 'surname' | 'age';
 type FilterAssigned = 'all' | 'assigned' | 'unassigned';
 
+// Column header metadata
+const COL_LABELS: Record<number, string> = {
+  [COL_NAME]: 'Name',
+  [COL_SURNAME]: 'Surname',
+  [COL_GENDER]: 'Gender',
+  [COL_AGE]: 'Age',
+  [COL_REL]: 'Rel.',
+  [COL_PARTNER]: 'Partner',
+  [COL_NOTES]: 'Notes',
+  [COL_TABLE]: 'Table',
+  [COL_ROLE]: 'Role',
+};
+
+const SORTABLE_COLS: Record<number, SortColumn> = {
+  [COL_NAME]: 'name',
+  [COL_SURNAME]: 'surname',
+  [COL_AGE]: 'age',
+};
+
 export default function GuestList({
   guests, seatAssignments, tables,
   onAddGuest, onAddGuests, onRemoveGuest, onUnassign, onUpdateGuest, onUpdateGuests,
@@ -57,10 +97,13 @@ export default function GuestList({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeCell, setActiveCell] = useState<{ rowId: string | 'draft'; colIndex: number } | null>(null);
   const [draft, setDraft] = useState<DraftValues>(EMPTY_DRAFT);
+  const [columnOrder, setColumnOrder] = useState<number[]>(loadColumnOrder);
+  const [dragOverCol, setDragOverCol] = useState<number | null>(null);
 
   const draftRef = useRef<DraftValues>(EMPTY_DRAFT);
   const onAddGuestRef = useRef(onAddGuest);
   const prevRowIdRef = useRef<string | 'draft' | null>(null);
+  const dragSrcColRef = useRef<number | null>(null);
 
   useEffect(() => { onAddGuestRef.current = onAddGuest; }, [onAddGuest]);
 
@@ -219,12 +262,20 @@ export default function GuestList({
     setSelectedIds(new Set());
   }
 
-  // ---- spreadsheet navigation ----
+  // ---- spreadsheet navigation — skip COL_TABLE (read-only) ----
+
+  function nextEditableCol(col: number, forward: boolean): number {
+    let c = forward ? col + 1 : col - 1;
+    while (c >= 0 && c < NUM_DATA_COLS && c === COL_TABLE) {
+      c = forward ? c + 1 : c - 1;
+    }
+    return c;
+  }
 
   function handleTab(rowId: string | 'draft', col: number, forward: boolean) {
     if (forward) {
-      let nextCol = col + 1;
-      if (rowId === 'draft' && nextCol === COL_PARTNER) nextCol++; // skip partner in draft
+      let nextCol = nextEditableCol(col, true);
+      if (rowId === 'draft' && nextCol === COL_PARTNER) nextCol = nextEditableCol(nextCol, true);
 
       if (nextCol < NUM_DATA_COLS) {
         setActiveCell({ rowId, colIndex: nextCol });
@@ -242,8 +293,8 @@ export default function GuestList({
         }
       }
     } else {
-      let prevCol = col - 1;
-      if (rowId === 'draft' && prevCol === COL_PARTNER) prevCol--; // skip partner in draft
+      let prevCol = nextEditableCol(col, false);
+      if (rowId === 'draft' && prevCol === COL_PARTNER) prevCol = nextEditableCol(prevCol, false);
 
       if (prevCol >= 0) {
         setActiveCell({ rowId, colIndex: prevCol });
@@ -304,7 +355,7 @@ export default function GuestList({
     } else if (colIdx === COL_REL) {
       target.relationship = value === 'single' || value === 'taken' ? value : undefined;
     } else if (colIdx === COL_NOTES) { target.notes = value || undefined; }
-    // COL_PARTNER: skip
+    // COL_PARTNER, COL_TABLE, COL_ROLE: skip
   }
 
   function processPaste(text: string, startRowId: string | 'draft', startCol: number) {
@@ -355,15 +406,63 @@ export default function GuestList({
     if (newGuests.length > 0) onAddGuests(newGuests);
   }
 
+  // ---- column drag reorder ----
+
+  function handleColDragStart(e: React.DragEvent, colIdx: number) {
+    dragSrcColRef.current = colIdx;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(colIdx));
+  }
+
+  function handleColDragOver(e: React.DragEvent, colIdx: number) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverCol(colIdx);
+  }
+
+  function handleColDrop(e: React.DragEvent, targetColIdx: number) {
+    e.preventDefault();
+    setDragOverCol(null);
+    const srcColIdx = dragSrcColRef.current;
+    if (srcColIdx === null || srcColIdx === targetColIdx) return;
+
+    setColumnOrder(prev => {
+      const next = [...prev];
+      const fromPos = next.indexOf(srcColIdx);
+      const toPos = next.indexOf(targetColIdx);
+      if (fromPos < 0 || toPos < 0) return prev;
+      next.splice(fromPos, 1);
+      next.splice(toPos, 0, srcColIdx);
+      localStorage.setItem(LS_COL_ORDER_KEY, JSON.stringify(next));
+      return next;
+    });
+    dragSrcColRef.current = null;
+  }
+
+  function handleColDragEnd() {
+    setDragOverCol(null);
+    dragSrcColRef.current = null;
+  }
+
   // ---- column header ----
 
-  function ColHeader({ col, label }: { col: SortColumn; label: string }) {
+  function ColHeader({ colConst }: { colConst: number }) {
+    const label = COL_LABELS[colConst] ?? '?';
+    const sortKey = SORTABLE_COLS[colConst];
+    const isDropTarget = dragOverCol === colConst;
+
     return (
       <th
-        className="px-1 py-1.5 text-left font-medium text-stone-600 cursor-pointer hover:text-stone-800 select-none whitespace-nowrap"
-        onClick={() => handleSort(col)}
+        className={`px-1 py-1.5 text-left font-medium text-stone-600 select-none whitespace-nowrap ${sortKey ? 'cursor-pointer hover:text-stone-800' : ''} ${isDropTarget ? 'bg-blue-50 outline outline-2 outline-blue-400' : ''}`}
+        draggable
+        onDragStart={e => handleColDragStart(e, colConst)}
+        onDragOver={e => handleColDragOver(e, colConst)}
+        onDrop={e => handleColDrop(e, colConst)}
+        onDragEnd={handleColDragEnd}
+        onClick={() => { if (sortKey) handleSort(sortKey); }}
+        title="Drag to reorder"
       >
-        {label}{sortIcon(col)}
+        {label}{sortKey ? sortIcon(sortKey) : null}
       </th>
     );
   }
@@ -378,6 +477,77 @@ export default function GuestList({
     if (!isDraftActive(col)) setActiveCell({ rowId: 'draft', colIndex: col });
   };
 
+  // Draft cells by column index
+  function renderDraftCell(col: number) {
+    switch (col) {
+      case COL_NAME:
+        return (
+          <td key={col} className={`${tdBase} w-[70px]`} onClick={activateDraft(COL_NAME)}>
+            {isDraftActive(COL_NAME)
+              ? <CellInput initialValue={draft.name} placeholder="Name" onCommit={v => updateDraft(COL_NAME, v)} onDeactivate={() => setActiveCell(null)} onTab={fwd => handleTab('draft', COL_NAME, fwd)} onEnter={() => handleEnter('draft', COL_NAME)} onPaste={handleGridPaste} />
+              : <span className="block truncate px-1 py-0.5 cursor-pointer hover:bg-stone-100 rounded text-stone-400">{draft.name || 'Name…'}</span>}
+          </td>
+        );
+      case COL_SURNAME:
+        return (
+          <td key={col} className={`${tdBase} w-[70px]`} onClick={activateDraft(COL_SURNAME)}>
+            {isDraftActive(COL_SURNAME)
+              ? <CellInput initialValue={draft.surname} placeholder="Surname" onCommit={v => updateDraft(COL_SURNAME, v)} onDeactivate={() => setActiveCell(null)} onTab={fwd => handleTab('draft', COL_SURNAME, fwd)} onEnter={() => handleEnter('draft', COL_SURNAME)} onPaste={handleGridPaste} />
+              : <span className="block truncate px-1 py-0.5 cursor-pointer hover:bg-stone-100 rounded text-stone-400">{draft.surname || 'Surname…'}</span>}
+          </td>
+        );
+      case COL_GENDER:
+        return (
+          <td key={col} className={`${tdBase} w-[54px]`} onClick={activateDraft(COL_GENDER)}>
+            {isDraftActive(COL_GENDER)
+              ? <select autoFocus value={draft.gender} className={selectCls} onChange={e => { updateDraft(COL_GENDER, e.target.value); setActiveCell(null); }} onKeyDown={e => { if (e.key === 'Tab') { e.preventDefault(); handleTab('draft', COL_GENDER, !e.shiftKey); } if (e.key === 'Escape') setActiveCell(null); }} onBlur={() => setActiveCell(null)} onPaste={handleGridPaste}>
+                  <option value="unspecified">—</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                  <option value="other">Other</option>
+                </select>
+              : <span className="block text-center px-1 py-0.5 cursor-pointer hover:bg-stone-100 rounded text-stone-400">{draft.gender !== 'unspecified' ? GENDER_LABELS[draft.gender] : '—'}</span>}
+          </td>
+        );
+      case COL_AGE:
+        return (
+          <td key={col} className={`${tdBase} w-[44px]`} onClick={activateDraft(COL_AGE)}>
+            {isDraftActive(COL_AGE)
+              ? <CellInput initialValue={draft.age} type="number" min={0} max={150} onCommit={v => updateDraft(COL_AGE, v)} onDeactivate={() => setActiveCell(null)} onTab={fwd => handleTab('draft', COL_AGE, fwd)} onEnter={() => handleEnter('draft', COL_AGE)} onPaste={handleGridPaste} />
+              : <span className="block text-center px-1 py-0.5 cursor-pointer hover:bg-stone-100 rounded text-stone-400">{draft.age || '—'}</span>}
+          </td>
+        );
+      case COL_REL:
+        return (
+          <td key={col} className={`${tdBase} w-[64px]`} onClick={activateDraft(COL_REL)}>
+            {isDraftActive(COL_REL)
+              ? <select autoFocus value={draft.relationship} className={selectCls} onChange={e => { updateDraft(COL_REL, e.target.value); setActiveCell(null); }} onKeyDown={e => { if (e.key === 'Tab') { e.preventDefault(); handleTab('draft', COL_REL, !e.shiftKey); } if (e.key === 'Escape') setActiveCell(null); }} onBlur={() => setActiveCell(null)} onPaste={handleGridPaste}>
+                  <option value="">—</option>
+                  <option value="single">Single</option>
+                  <option value="taken">Taken</option>
+                </select>
+              : <span className="block text-center px-1 py-0.5 cursor-pointer hover:bg-stone-100 rounded capitalize text-stone-400">{draft.relationship || '—'}</span>}
+          </td>
+        );
+      case COL_PARTNER:
+        return <td key={col} className={`${tdBase} w-[90px]`}><span className="text-stone-200 px-1">—</span></td>;
+      case COL_NOTES:
+        return (
+          <td key={col} className={`${tdBase} min-w-[60px]`} onClick={activateDraft(COL_NOTES)}>
+            {isDraftActive(COL_NOTES)
+              ? <CellInput initialValue={draft.notes} placeholder="Notes" onCommit={v => updateDraft(COL_NOTES, v)} onDeactivate={() => setActiveCell(null)} onTab={fwd => handleTab('draft', COL_NOTES, fwd)} onEnter={() => handleEnter('draft', COL_NOTES)} onPaste={handleGridPaste} />
+              : <span className="block truncate px-1 py-0.5 cursor-pointer hover:bg-stone-100 rounded text-stone-400">{draft.notes || '—'}</span>}
+          </td>
+        );
+      case COL_TABLE:
+        return <td key={col} className={`${tdBase} w-[64px]`}><span className="text-stone-200 px-1">—</span></td>;
+      case COL_ROLE:
+        return <td key={col} className={`${tdBase} w-[100px]`}><span className="text-stone-200 px-1">—</span></td>;
+      default:
+        return <td key={col} />;
+    }
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Header controls */}
@@ -389,38 +559,16 @@ export default function GuestList({
           <div className="flex items-center gap-1 flex-wrap justify-end">
             {(onUndo || onRedo) && (
               <>
-                <button
-                  onClick={onUndo}
-                  disabled={!canUndo}
-                  title="Undo (Ctrl+Z)"
-                  className="text-xs py-1 px-2 border border-stone-200 rounded text-stone-600 hover:bg-stone-50 disabled:opacity-30 disabled:cursor-not-allowed"
-                >↩</button>
-                <button
-                  onClick={onRedo}
-                  disabled={!canRedo}
-                  title="Redo (Ctrl+Y)"
-                  className="text-xs py-1 px-2 border border-stone-200 rounded text-stone-600 hover:bg-stone-50 disabled:opacity-30 disabled:cursor-not-allowed"
-                >↪</button>
+                <button onClick={onUndo} disabled={!canUndo} title="Undo (Ctrl+Z)" className="text-xs py-1 px-2 border border-stone-200 rounded text-stone-600 hover:bg-stone-50 disabled:opacity-30 disabled:cursor-not-allowed">↩</button>
+                <button onClick={onRedo} disabled={!canRedo} title="Redo (Ctrl+Y)" className="text-xs py-1 px-2 border border-stone-200 rounded text-stone-600 hover:bg-stone-50 disabled:opacity-30 disabled:cursor-not-allowed">↪</button>
               </>
             )}
-            <button
-              onClick={() => setShowCsvModal(true)}
-              title="Upload CSV"
-              className="text-xs py-1 px-2 border border-stone-200 rounded text-stone-600 hover:bg-stone-50"
-            >
-              📁 CSV
-            </button>
+            <button onClick={() => setShowCsvModal(true)} title="Upload CSV" className="text-xs py-1 px-2 border border-stone-200 rounded text-stone-600 hover:bg-stone-50">📁 CSV</button>
             <button
               onClick={onToggleGenderHighlight}
               title="Toggle gender highlight"
-              className={`text-xs py-1 px-2 border rounded transition-colors ${
-                showGenderHighlight
-                  ? 'border-blue-400 bg-blue-50 text-blue-600'
-                  : 'border-stone-200 text-stone-400 hover:bg-stone-50'
-              }`}
-            >
-              🎨
-            </button>
+              className={`text-xs py-1 px-2 border rounded transition-colors ${showGenderHighlight ? 'border-blue-400 bg-blue-50 text-blue-600' : 'border-stone-200 text-stone-400 hover:bg-stone-50'}`}
+            >🎨</button>
           </div>
         </div>
 
@@ -435,24 +583,10 @@ export default function GuestList({
         <div className="flex items-center gap-1 flex-wrap">
           <div className="flex gap-1 text-xs">
             {(['all', 'unassigned', 'assigned'] as FilterAssigned[]).map(f => (
-              <button
-                key={f}
-                onClick={() => setFilterAssigned(f)}
-                className={`px-2 py-1 rounded capitalize transition-colors ${
-                  filterAssigned === f
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
-                }`}
-              >
-                {f}
-              </button>
+              <button key={f} onClick={() => setFilterAssigned(f)} className={`px-2 py-1 rounded capitalize transition-colors ${filterAssigned === f ? 'bg-blue-500 text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'}`}>{f}</button>
             ))}
           </div>
-          <select
-            value={filterGender}
-            onChange={e => setFilterGender(e.target.value as Gender | 'all')}
-            className="text-xs border border-stone-200 rounded px-1 py-1 bg-white ml-auto"
-          >
+          <select value={filterGender} onChange={e => setFilterGender(e.target.value as Gender | 'all')} className="text-xs border border-stone-200 rounded px-1 py-1 bg-white ml-auto">
             <option value="all">All genders</option>
             <option value="male">Male</option>
             <option value="female">Female</option>
@@ -468,21 +602,9 @@ export default function GuestList({
           <thead className="sticky top-0 bg-white z-10 shadow-[0_1px_0_0_#e7e5e4]">
             <tr>
               <th className="px-1 py-1.5 w-6 text-center">
-                <input
-                  type="checkbox"
-                  checked={allChecked}
-                  ref={el => { if (el) el.indeterminate = someChecked; }}
-                  onChange={toggleSelectAll}
-                  className="cursor-pointer"
-                />
+                <input type="checkbox" checked={allChecked} ref={el => { if (el) el.indeterminate = someChecked; }} onChange={toggleSelectAll} className="cursor-pointer" />
               </th>
-              <ColHeader col="name" label="Name" />
-              <ColHeader col="surname" label="Surname" />
-              <th className="px-1 py-1.5 text-left font-medium text-stone-600 w-[54px]">Gender</th>
-              <ColHeader col="age" label="Age" />
-              <th className="px-1 py-1.5 text-left font-medium text-stone-600 w-[64px]">Rel.</th>
-              <th className="px-1 py-1.5 text-left font-medium text-stone-600 w-[90px]">Partner</th>
-              <th className="px-1 py-1.5 text-left font-medium text-stone-600">Notes</th>
+              {columnOrder.map(col => <ColHeader key={col} colConst={col} />)}
               <th className="px-1 py-1.5 w-[28px]"></th>
               <th className="px-1 py-1.5 w-[24px]"></th>
             </tr>
@@ -490,10 +612,8 @@ export default function GuestList({
           <tbody>
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={10} className="pt-4 pb-1 text-center text-stone-400 text-sm">
-                  {guests.length === 0
-                    ? 'Type in the row below to add your first guest.'
-                    : 'No guests match your filter.'}
+                <td colSpan={NUM_DATA_COLS + 3} className="pt-4 pb-1 text-center text-stone-400 text-sm">
+                  {guests.length === 0 ? 'Type in the row below to add your first guest.' : 'No guests match your filter.'}
                 </td>
               </tr>
             )}
@@ -509,6 +629,7 @@ export default function GuestList({
                   tableLabel={getTableLabel(guest.id)}
                   isSelected={selectedIds.has(guest.id)}
                   activeColIndex={activeCell?.rowId === guest.id ? activeCell.colIndex : null}
+                  columnOrder={columnOrder}
                   onToggleSelect={() => toggleSelect(guest.id)}
                   onCellActivate={col => setActiveCell({ rowId: guest.id, colIndex: col })}
                   onCellDeactivate={() => setActiveCell(null)}
@@ -524,139 +645,10 @@ export default function GuestList({
               );
             })}
 
-            {/* Draft row — always at bottom for adding guests */}
-            <tr
-              className={`border-b border-dashed border-stone-200 text-xs bg-stone-50 ${
-                activeCell?.rowId === 'draft' ? 'ring-1 ring-inset ring-blue-300' : ''
-              }`}
-            >
+            {/* Draft row */}
+            <tr className={`border-b border-dashed border-stone-200 text-xs bg-stone-50 ${activeCell?.rowId === 'draft' ? 'ring-1 ring-inset ring-blue-300' : ''}`}>
               <td className={`${tdBase} w-6`}></td>
-
-              {/* Name */}
-              <td className={`${tdBase} w-[70px]`} onClick={activateDraft(COL_NAME)}>
-                {isDraftActive(COL_NAME)
-                  ? <CellInput
-                      initialValue={draft.name}
-                      placeholder="Name"
-                      onCommit={v => updateDraft(COL_NAME, v)}
-                      onDeactivate={() => setActiveCell(null)}
-                      onTab={fwd => handleTab('draft', COL_NAME, fwd)}
-                      onEnter={() => handleEnter('draft', COL_NAME)}
-                      onPaste={handleGridPaste}
-                    />
-                  : <span className="block truncate px-1 py-0.5 cursor-pointer hover:bg-stone-100 rounded text-stone-400">
-                      {draft.name || 'Name…'}
-                    </span>}
-              </td>
-
-              {/* Surname */}
-              <td className={`${tdBase} w-[70px]`} onClick={activateDraft(COL_SURNAME)}>
-                {isDraftActive(COL_SURNAME)
-                  ? <CellInput
-                      initialValue={draft.surname}
-                      placeholder="Surname"
-                      onCommit={v => updateDraft(COL_SURNAME, v)}
-                      onDeactivate={() => setActiveCell(null)}
-                      onTab={fwd => handleTab('draft', COL_SURNAME, fwd)}
-                      onEnter={() => handleEnter('draft', COL_SURNAME)}
-                      onPaste={handleGridPaste}
-                    />
-                  : <span className="block truncate px-1 py-0.5 cursor-pointer hover:bg-stone-100 rounded text-stone-400">
-                      {draft.surname || 'Surname…'}
-                    </span>}
-              </td>
-
-              {/* Gender */}
-              <td className={`${tdBase} w-[54px]`} onClick={activateDraft(COL_GENDER)}>
-                {isDraftActive(COL_GENDER)
-                  ? <select
-                      autoFocus
-                      value={draft.gender}
-                      className={selectCls}
-                      onChange={e => { updateDraft(COL_GENDER, e.target.value); setActiveCell(null); }}
-                      onKeyDown={e => {
-                        if (e.key === 'Tab') { e.preventDefault(); handleTab('draft', COL_GENDER, !e.shiftKey); }
-                        if (e.key === 'Escape') setActiveCell(null);
-                      }}
-                      onBlur={() => setActiveCell(null)}
-                      onPaste={handleGridPaste}
-                    >
-                      <option value="unspecified">—</option>
-                      <option value="male">Male</option>
-                      <option value="female">Female</option>
-                      <option value="other">Other</option>
-                    </select>
-                  : <span className="block text-center px-1 py-0.5 cursor-pointer hover:bg-stone-100 rounded text-stone-400">
-                      {draft.gender !== 'unspecified' ? GENDER_LABELS[draft.gender] : '—'}
-                    </span>}
-              </td>
-
-              {/* Age */}
-              <td className={`${tdBase} w-[44px]`} onClick={activateDraft(COL_AGE)}>
-                {isDraftActive(COL_AGE)
-                  ? <CellInput
-                      initialValue={draft.age}
-                      type="number"
-                      min={0}
-                      max={150}
-                      onCommit={v => updateDraft(COL_AGE, v)}
-                      onDeactivate={() => setActiveCell(null)}
-                      onTab={fwd => handleTab('draft', COL_AGE, fwd)}
-                      onEnter={() => handleEnter('draft', COL_AGE)}
-                      onPaste={handleGridPaste}
-                    />
-                  : <span className="block text-center px-1 py-0.5 cursor-pointer hover:bg-stone-100 rounded text-stone-400">
-                      {draft.age || '—'}
-                    </span>}
-              </td>
-
-              {/* Relationship */}
-              <td className={`${tdBase} w-[64px]`} onClick={activateDraft(COL_REL)}>
-                {isDraftActive(COL_REL)
-                  ? <select
-                      autoFocus
-                      value={draft.relationship}
-                      className={selectCls}
-                      onChange={e => { updateDraft(COL_REL, e.target.value); setActiveCell(null); }}
-                      onKeyDown={e => {
-                        if (e.key === 'Tab') { e.preventDefault(); handleTab('draft', COL_REL, !e.shiftKey); }
-                        if (e.key === 'Escape') setActiveCell(null);
-                      }}
-                      onBlur={() => setActiveCell(null)}
-                      onPaste={handleGridPaste}
-                    >
-                      <option value="">—</option>
-                      <option value="single">Single</option>
-                      <option value="taken">Taken</option>
-                    </select>
-                  : <span className="block text-center px-1 py-0.5 cursor-pointer hover:bg-stone-100 rounded capitalize text-stone-400">
-                      {draft.relationship || '—'}
-                    </span>}
-              </td>
-
-              {/* Partner — not editable in draft */}
-              <td className={`${tdBase} w-[90px]`}>
-                <span className="text-stone-200 px-1">—</span>
-              </td>
-
-              {/* Notes */}
-              <td className={`${tdBase} min-w-[60px]`} onClick={activateDraft(COL_NOTES)}>
-                {isDraftActive(COL_NOTES)
-                  ? <CellInput
-                      initialValue={draft.notes}
-                      placeholder="Notes"
-                      onCommit={v => updateDraft(COL_NOTES, v)}
-                      onDeactivate={() => setActiveCell(null)}
-                      onTab={fwd => handleTab('draft', COL_NOTES, fwd)}
-                      onEnter={() => handleEnter('draft', COL_NOTES)}
-                      onPaste={handleGridPaste}
-                    />
-                  : <span className="block truncate px-1 py-0.5 cursor-pointer hover:bg-stone-100 rounded text-stone-400">
-                      {draft.notes || '—'}
-                    </span>}
-              </td>
-
-              {/* Unassign / Delete — not applicable for draft */}
+              {columnOrder.map(col => renderDraftCell(col))}
               <td className={`${tdBase} w-[28px]`}></td>
               <td className={`${tdBase} w-[24px]`}></td>
             </tr>
@@ -675,11 +667,7 @@ export default function GuestList({
         />
       )}
 
-      <CsvUploadModal
-        isOpen={showCsvModal}
-        onClose={() => setShowCsvModal(false)}
-        onImport={onAddGuests}
-      />
+      <CsvUploadModal isOpen={showCsvModal} onClose={() => setShowCsvModal(false)} onImport={onAddGuests} />
     </div>
   );
 }

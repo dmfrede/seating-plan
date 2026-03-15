@@ -23,9 +23,13 @@ interface VenueCanvasProps {
   onMoveTable: (tableId: string, x: number, y: number) => void;
   onSeatClick: (tableId: string, seatIndex: number) => void;
   onAssignGuest: (guestId: string, tableId: string, seatIndex: number) => void;
+  onUnassignGuest: (guestId: string) => void;
+  onShowToast: (message: string) => void;
   showGenderWarnings: boolean;
   hasGenderWarning: (tableId: string) => boolean;
   showGenderHighlight: boolean;
+  canvasFontSize: number;
+  onFontSizeChange: (size: number) => void;
 }
 
 export default function VenueCanvas({
@@ -38,9 +42,13 @@ export default function VenueCanvas({
   onSelectTable,
   onMoveTable,
   onAssignGuest,
+  onUnassignGuest,
+  onShowToast,
   showGenderWarnings,
   hasGenderWarning,
   showGenderHighlight,
+  canvasFontSize,
+  onFontSizeChange,
 }: VenueCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -48,6 +56,7 @@ export default function VenueCanvas({
   const [offset, setOffset] = useState({ x: 20, y: 20 });
   const [dragging, setDragging] = useState<{ tableId: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [panning, setPanning] = useState<{ startX: number; startY: number; origOffsetX: number; origOffsetY: number } | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
 
   const vW = metersToPixels(venueWidth);
   const vH = metersToPixels(venueHeight);
@@ -91,11 +100,11 @@ export default function VenueCanvas({
 
     // Tables
     for (const table of tables) {
-      drawTable(ctx, table, guests, seatAssignments, selectedTableId, hasGenderWarning, showGenderWarnings, showGenderHighlight);
+      drawTable(ctx, table, guests, seatAssignments, selectedTableId, hasGenderWarning, showGenderWarnings, showGenderHighlight, canvasFontSize);
     }
 
     ctx.restore();
-  }, [tables, guests, seatAssignments, selectedTableId, scale, offset, vW, vH, gridPx, hasGenderWarning, showGenderWarnings, showGenderHighlight]);
+  }, [tables, guests, seatAssignments, selectedTableId, scale, offset, vW, vH, gridPx, hasGenderWarning, showGenderWarnings, showGenderHighlight, canvasFontSize]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -232,9 +241,26 @@ export default function VenueCanvas({
     const x = (e.clientX - rect.left - offset.x) / scale;
     const y = (e.clientY - rect.top - offset.y) / scale;
     const seat = findSeatAt(x, y);
-    if (seat) {
-      onAssignGuest(guestId, seat.tableId, seat.seatIndex);
+
+    if (!seat) {
+      onUnassignGuest(guestId);
+      return;
     }
+
+    // Displace existing occupant if different guest
+    const existing = seatAssignments.find(
+      a => a.tableId === seat.tableId && a.seatIndex === seat.seatIndex
+    );
+    if (existing && existing.guestId !== guestId) {
+      onUnassignGuest(existing.guestId);
+      const displaced = guests.find(g => g.id === existing.guestId);
+      const tableLabel = tables.find(t => t.id === seat.tableId)?.label ?? seat.tableId;
+      if (displaced) {
+        onShowToast(`${displaced.name} ${displaced.surname} unassigned from ${tableLabel}`);
+      }
+    }
+
+    onAssignGuest(guestId, seat.tableId, seat.seatIndex);
   };
 
   return (
@@ -252,6 +278,32 @@ export default function VenueCanvas({
         onDrop={handleDrop}
       />
 
+      {/* Settings panel — top-left */}
+      <div className="absolute top-4 left-4 flex flex-col gap-1 z-20">
+        <button
+          onClick={() => setShowSettings(s => !s)}
+          className="w-8 h-8 bg-white border border-stone-200 rounded text-stone-600 hover:bg-stone-50 flex items-center justify-center shadow-sm"
+          title="Canvas settings"
+        >
+          ⚙️
+        </button>
+        {showSettings && (
+          <div className="bg-white border border-stone-200 rounded p-2 shadow-md text-xs w-40">
+            <div className="mb-1 font-medium text-stone-600">Name font size</div>
+            <input
+              type="number"
+              min={6}
+              max={16}
+              step={1}
+              value={canvasFontSize}
+              onChange={e => onFontSizeChange(Math.min(16, Math.max(6, parseInt(e.target.value) || 6)))}
+              className="w-full border border-stone-200 rounded px-1 py-0.5 outline-none"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Zoom controls — bottom-right */}
       <div className="absolute bottom-4 right-4 flex flex-col gap-1">
         <button
           onClick={() => setScale(s => Math.min(s * 1.2, 3))}
@@ -288,24 +340,28 @@ function drawTable(
   selectedTableId: string | null,
   hasGenderWarning: (tableId: string) => boolean,
   showGenderWarnings: boolean,
-  showGenderHighlight: boolean
+  showGenderHighlight: boolean,
+  canvasFontSize: number
 ) {
   const { position, type, id } = table;
   const isSelected = selectedTableId === id;
   const dims = getTableDimensions(type);
   const tableAssignments = assignments.filter(a => a.tableId === id);
   const hasWarning = showGenderWarnings && hasGenderWarning(id);
+  const seatRadius = 10;
 
   ctx.save();
   ctx.translate(position.x, position.y);
 
   const seatPositions = getSeatPositions(table);
+
+  // Draw seat circles
   seatPositions.forEach((sp, seatIndex) => {
     const assignment = tableAssignments.find(a => a.seatIndex === seatIndex);
     const guest = assignment ? guests.find(g => g.id === assignment.guestId) : null;
 
     ctx.beginPath();
-    ctx.arc(sp.x, sp.y, 10, 0, Math.PI * 2);
+    ctx.arc(sp.x, sp.y, seatRadius, 0, Math.PI * 2);
 
     if (showGenderHighlight && guest) {
       if (guest.gender === 'male') {
@@ -313,8 +369,7 @@ function drawTable(
       } else if (guest.gender === 'female') {
         ctx.fillStyle = COLORS.genderFemaleCanvas;
       } else {
-        // rainbow gradient for other/unspecified
-        const grad = ctx.createLinearGradient(sp.x - 10, sp.y, sp.x + 10, sp.y);
+        const grad = ctx.createLinearGradient(sp.x - seatRadius, sp.y, sp.x + seatRadius, sp.y);
         grad.addColorStop(0, '#fde68a');
         grad.addColorStop(0.33, '#a7f3d0');
         grad.addColorStop(0.66, '#bfdbfe');
@@ -329,19 +384,9 @@ function drawTable(
     ctx.strokeStyle = guest ? '#6ab368' : '#e8a090';
     ctx.lineWidth = 1.5;
     ctx.stroke();
-
-    if (guest) {
-      ctx.fillStyle = showGenderHighlight && (guest.gender === 'male' || guest.gender === 'female') ? '#fff' : '#2d5c2a';
-      ctx.font = '8px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(
-        `${guest.name[0]}${guest.surname[0]}`,
-        sp.x, sp.y
-      );
-    }
   });
 
+  // Draw table body
   if (type === 'round') {
     const r = dims.width / 2;
     ctx.beginPath();
@@ -373,11 +418,71 @@ function drawTable(
     ctx.stroke();
   }
 
+  // Table label
   ctx.fillStyle = '#4e3824';
   ctx.font = 'bold 12px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(table.label, 0, 0);
+
+  // Guest names radiating outward from seats
+  ctx.font = `${canvasFontSize}px sans-serif`;
+  ctx.fillStyle = '#1a1a1a';
+
+  if (type === 'round') {
+    const angles = seatPositions.map(sp => Math.atan2(sp.y, sp.x));
+    // Determine which seats should use shortened name due to adjacent overlap
+    const useShort = new Array(seatPositions.length).fill(false);
+    for (let i = 0; i < seatPositions.length; i++) {
+      const next = (i + 1) % seatPositions.length;
+      let diff = Math.abs(angles[next] - angles[i]);
+      if (diff > Math.PI) diff = Math.PI * 2 - diff;
+      if (diff < 0.4) {
+        useShort[i] = true;
+        useShort[next] = true;
+      }
+    }
+
+    seatPositions.forEach((sp, seatIndex) => {
+      const assignment = tableAssignments.find(a => a.seatIndex === seatIndex);
+      const guest = assignment ? guests.find(g => g.id === assignment.guestId) : null;
+      if (!guest) return;
+
+      const fullName = `${guest.name} ${guest.surname}`;
+      const measured = ctx.measureText(fullName).width;
+      const name = (measured > seatRadius * 5 || useShort[seatIndex])
+        ? `${guest.name} ${guest.surname[0]}.`
+        : fullName;
+
+      ctx.save();
+      ctx.translate(sp.x, sp.y);
+      ctx.rotate(angles[seatIndex]);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(name, seatRadius + 2, 0);
+      ctx.restore();
+    });
+  } else {
+    seatPositions.forEach((sp, seatIndex) => {
+      const assignment = tableAssignments.find(a => a.seatIndex === seatIndex);
+      const guest = assignment ? guests.find(g => g.id === assignment.guestId) : null;
+      if (!guest) return;
+
+      const fullName = `${guest.name} ${guest.surname}`;
+      const measured = ctx.measureText(fullName).width;
+      const name = measured > seatRadius * 5
+        ? `${guest.name} ${guest.surname[0]}.`
+        : fullName;
+
+      ctx.save();
+      ctx.translate(sp.x, sp.y);
+      ctx.rotate(Math.PI / 4);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(name, seatRadius + 2, 0);
+      ctx.restore();
+    });
+  }
 
   if (hasWarning) {
     ctx.beginPath();
@@ -386,6 +491,8 @@ function drawTable(
     ctx.fill();
     ctx.fillStyle = '#78350f';
     ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     ctx.fillText('!', dims.width / 2 - 8, -dims.height / 2 + 8);
   }
 
