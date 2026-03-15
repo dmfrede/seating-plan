@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Guest, Gender, SeatAssignment, Table } from '../../types';
-import GuestTableRow, {
-  CellInput, GENDER_LABELS,
+import GuestTableRow, { CellInput } from './GuestTableRow';
+import {
+  GENDER_LABELS,
   COL_NAME, COL_SURNAME, COL_GENDER, COL_AGE, COL_REL, COL_PARTNER, COL_NOTES, NUM_DATA_COLS,
-} from './GuestTableRow';
+} from './guestTableConstants';
 import MassEditToolbar from './MassEditToolbar';
 import CsvUploadModal from './CsvUploadModal';
 
@@ -64,7 +65,6 @@ export default function GuestList({
   useEffect(() => { onAddGuestRef.current = onAddGuest; }, [onAddGuest]);
 
   // Save draft when navigating away from draft row
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const prev = prevRowIdRef.current;
     const curr = activeCell?.rowId ?? null;
