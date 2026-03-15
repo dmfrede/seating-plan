@@ -1,20 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { Guest, Gender } from '../../types';
 import { COLORS } from '../../utils/constants';
-
-// Column indices — exported so GuestList can reference them
-export const COL_NAME = 0;
-export const COL_SURNAME = 1;
-export const COL_GENDER = 2;
-export const COL_AGE = 3;
-export const COL_REL = 4;
-export const COL_PARTNER = 5;
-export const COL_NOTES = 6;
-export const NUM_DATA_COLS = 7;
-
-export const GENDER_LABELS: Record<Gender, string> = {
-  male: 'M', female: 'F', other: 'O', unspecified: '—',
-};
+import {
+  COL_NAME, COL_SURNAME, COL_GENDER, COL_AGE, COL_REL, COL_PARTNER, COL_NOTES,
+  GENDER_LABELS,
+} from './guestTableConstants';
 
 // ---- Shared cell input (module-level so it never re-creates on parent renders) ----
 
