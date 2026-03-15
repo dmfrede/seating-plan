@@ -16,9 +16,8 @@ import GuestList from '../Guests/GuestList';
 import ExportButton from '../Export/ExportButton';
 import DemoSignupCTA from '../Demo/DemoSignupCTA';
 
-interface AppState {
+interface SeatingSnapshot {
   tables: Table[];
-  guests: Guest[];
   seatAssignments: SeatAssignment[];
 }
 
@@ -45,15 +44,32 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
     localStorage.setItem('canvasFontSize', String(canvasFontSize));
   }, [canvasFontSize]);
 
-  const [appTables, setAppTables] = useState<Table[]>([]);
-  const [appGuests, setAppGuests] = useState<Guest[]>([]);
-  const [appAssignments, setAppAssignments] = useState<SeatAssignment[]>([]);
+  // ---- Two independent undo/redo stacks ----
 
-  const { canUndo, canRedo, push: pushHistory, undo, redo } = useUndoRedo<AppState>({
-    tables: appTables,
-    guests: appGuests,
-    seatAssignments: appAssignments,
-  });
+  const guestHistory = useUndoRedo<Guest[]>([]);
+  const seatingHistory = useUndoRedo<SeatingSnapshot>({ tables: [], seatAssignments: [] });
+
+  const {
+    current: appGuests,
+    push: pushGuests,
+    undo: undoGuests,
+    redo: redoGuests,
+    canUndo: canUndoGuests,
+    canRedo: canRedoGuests,
+  } = guestHistory;
+
+  const {
+    current: seatingCurrent,
+    push: pushSeating,
+    replace: replaceSeating,
+    undo: undoSeating,
+    redo: redoSeating,
+    canUndo: canUndoSeating,
+    canRedo: canRedoSeating,
+  } = seatingHistory;
+
+  const appTables = seatingCurrent.tables;
+  const appAssignments = seatingCurrent.seatAssignments;
 
   const tables = isDemo ? demo.tables : appTables;
   const guests = isDemo ? demo.guests : appGuests;
@@ -88,42 +104,34 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
       rotation: 0,
       seats,
     };
-
-    setAppTables(prev => {
-      const next = [...prev, newTable];
-      pushHistory({ tables: next, guests: appGuests, seatAssignments: appAssignments });
-      return next;
-    });
-  }, [isDemo, appGuests, appAssignments, pushHistory, addToast]);
+    pushSeating({ tables: [...appTables, newTable], seatAssignments: appAssignments });
+  }, [isDemo, appTables, appAssignments, pushSeating, addToast]);
 
   const handleRemoveTable = useCallback((tableId: string) => {
     if (isDemo) return;
     const newAssignments = appAssignments.filter(x => x.tableId !== tableId);
-    setAppAssignments(newAssignments);
-    setAppTables(prev => {
-      const next = prev.filter(t => t.id !== tableId);
-      pushHistory({ tables: next, guests: appGuests, seatAssignments: newAssignments });
-      return next;
-    });
+    const nextTables = appTables.filter(t => t.id !== tableId);
+    pushSeating({ tables: nextTables, seatAssignments: newAssignments });
     if (selectedTableId === tableId) setSelectedTableId(null);
-  }, [isDemo, appGuests, appAssignments, pushHistory, selectedTableId]);
+  }, [isDemo, appTables, appAssignments, pushSeating, selectedTableId]);
 
   const handleUpdateTable = useCallback((tableId: string, updates: Partial<Table>) => {
     if (isDemo) return;
-    setAppTables(prev => {
-      const next = prev.map(t => t.id === tableId ? { ...t, ...updates } : t);
-      pushHistory({ tables: next, guests: appGuests, seatAssignments: appAssignments });
-      return next;
-    });
-  }, [isDemo, appGuests, appAssignments, pushHistory]);
+    const nextTables = appTables.map(t => t.id === tableId ? { ...t, ...updates } : t);
+    pushSeating({ tables: nextTables, seatAssignments: appAssignments });
+  }, [isDemo, appTables, appAssignments, pushSeating]);
 
+  // Move table: update in-place without adding a history entry (continuous drag)
   const handleMoveTable = useCallback((tableId: string, x: number, y: number) => {
     if (isDemo) {
       demo.moveTable(tableId, x, y);
       return;
     }
-    setAppTables(prev => prev.map(t => t.id === tableId ? { ...t, position: { x, y } } : t));
-  }, [isDemo, demo]);
+    replaceSeating({
+      tables: appTables.map(t => t.id === tableId ? { ...t, position: { x, y } } : t),
+      seatAssignments: appAssignments,
+    });
+  }, [isDemo, demo, appTables, appAssignments, replaceSeating]);
 
   const handleAddGuest = useCallback((guest: Omit<Guest, 'id'>) => {
     if (isDemo) {
@@ -132,13 +140,9 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
       return;
     }
     const newGuest: Guest = { ...guest, id: `guest-${Date.now()}` };
-    setAppGuests(prev => {
-      const next = [...prev, newGuest];
-      pushHistory({ tables: appTables, guests: next, seatAssignments: appAssignments });
-      return next;
-    });
+    pushGuests([...appGuests, newGuest]);
     addToast(`${guest.name} ${guest.surname} added!`, 'success');
-  }, [isDemo, demo, appTables, appAssignments, pushHistory, addToast]);
+  }, [isDemo, demo, appGuests, pushGuests, addToast]);
 
   const handleAddGuests = useCallback((newGuests: Omit<Guest, 'id'>[]) => {
     if (isDemo) {
@@ -147,69 +151,57 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
       return;
     }
     const withIds = newGuests.map((g, i) => ({ ...g, id: `guest-${Date.now()}-${i}` }));
-    setAppGuests(prev => {
-      const next = [...prev, ...withIds];
-      pushHistory({ tables: appTables, guests: next, seatAssignments: appAssignments });
-      return next;
-    });
+    pushGuests([...appGuests, ...withIds]);
     addToast(`${newGuests.length} guests imported!`, 'success');
-  }, [isDemo, demo, appTables, appAssignments, pushHistory, addToast]);
+  }, [isDemo, demo, appGuests, pushGuests, addToast]);
 
   const handleRemoveGuest = useCallback((guestId: string) => {
     if (isDemo) {
       demo.removeGuest(guestId);
       return;
     }
+    // Clean up guest + partner link
+    const guestToRemove = appGuests.find(g => g.id === guestId);
+    let updated = appGuests;
+    if (guestToRemove?.partnerId) {
+      updated = appGuests.map(g => g.id === guestToRemove.partnerId ? { ...g, partnerId: undefined } : g);
+    }
+    const nextGuests = updated.filter(g => g.id !== guestId);
+    pushGuests(nextGuests);
+    // Also clean up seat assignment (push to seating stack so it's independently undoable)
     const newAssignments = appAssignments.filter(x => x.guestId !== guestId);
-    setAppAssignments(newAssignments);
-    setAppGuests(prev => {
-      const guestToRemove = prev.find(g => g.id === guestId);
-      let updated = prev;
-      if (guestToRemove?.partnerId) {
-        updated = prev.map(g => g.id === guestToRemove.partnerId ? { ...g, partnerId: undefined } : g);
-      }
-      const next = updated.filter(g => g.id !== guestId);
-      pushHistory({ tables: appTables, guests: next, seatAssignments: newAssignments });
-      return next;
-    });
-  }, [isDemo, demo, appTables, appAssignments, pushHistory]);
+    if (newAssignments.length !== appAssignments.length) {
+      pushSeating({ tables: appTables, seatAssignments: newAssignments });
+    }
+  }, [isDemo, demo, appGuests, appTables, appAssignments, pushGuests, pushSeating]);
 
   const handleUnassignGuest = useCallback((guestId: string) => {
     if (isDemo) {
       demo.unassignGuest(guestId);
       return;
     }
-    setAppAssignments(prev => {
-      const next = prev.filter(a => a.guestId !== guestId);
-      pushHistory({ tables: appTables, guests: appGuests, seatAssignments: next });
-      return next;
-    });
-  }, [isDemo, demo, appTables, appGuests, pushHistory]);
+    const next = appAssignments.filter(a => a.guestId !== guestId);
+    pushSeating({ tables: appTables, seatAssignments: next });
+  }, [isDemo, demo, appTables, appAssignments, pushSeating]);
 
   const handleUpdateGuest = useCallback((guestId: string, updates: Partial<Guest>) => {
     if (isDemo) {
       demo.updateGuest(guestId, updates);
       return;
     }
-    setAppGuests(prev => {
-      const next = prev.map(g => g.id === guestId ? { ...g, ...updates } : g);
-      pushHistory({ tables: appTables, guests: next, seatAssignments: appAssignments });
-      return next;
-    });
-  }, [isDemo, demo, appTables, appAssignments, pushHistory]);
+    const nextGuests = appGuests.map(g => g.id === guestId ? { ...g, ...updates } : g);
+    pushGuests(nextGuests);
+  }, [isDemo, demo, appGuests, pushGuests]);
 
   const handleUpdateGuests = useCallback((updates: Array<{ id: string; updates: Partial<Guest> }>) => {
     if (isDemo) {
       demo.updateGuests(updates);
       return;
     }
-    setAppGuests(prev => {
-      const map = new Map(updates.map(u => [u.id, u.updates]));
-      const next = prev.map(g => map.has(g.id) ? { ...g, ...map.get(g.id)! } : g);
-      pushHistory({ tables: appTables, guests: next, seatAssignments: appAssignments });
-      return next;
-    });
-  }, [isDemo, demo, appTables, appAssignments, pushHistory]);
+    const map = new Map(updates.map(u => [u.id, u.updates]));
+    const nextGuests = appGuests.map(g => map.has(g.id) ? { ...g, ...map.get(g.id)! } : g);
+    pushGuests(nextGuests);
+  }, [isDemo, demo, appGuests, pushGuests]);
 
   const handleSeatClick = useCallback((_tableId: string, _seatIndex: number) => {
     // Reserved for future seat assignment popover
@@ -220,15 +212,12 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
       demo.assignGuest(guestId, tableId, seatIndex);
       return;
     }
-    setAppAssignments(prev => {
-      const next = [
-        ...prev.filter(a => a.guestId !== guestId && !(a.tableId === tableId && a.seatIndex === seatIndex)),
-        { guestId, tableId, seatIndex },
-      ];
-      pushHistory({ tables: appTables, guests: appGuests, seatAssignments: next });
-      return next;
-    });
-  }, [isDemo, demo, appTables, appGuests, pushHistory]);
+    const next = [
+      ...appAssignments.filter(a => a.guestId !== guestId && !(a.tableId === tableId && a.seatIndex === seatIndex)),
+      { guestId, tableId, seatIndex },
+    ];
+    pushSeating({ tables: appTables, seatAssignments: next });
+  }, [isDemo, demo, appTables, appAssignments, pushSeating]);
 
   const hasGenderWarning = useCallback((tableId: string): boolean => {
     if (!showGenderWarnings) return false;
@@ -258,10 +247,10 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
         totalSeats={totalSeats}
         assignedGuests={assignedCount}
         totalGuests={guests.length}
-        onUndo={!isDemo ? undo : undefined}
-        onRedo={!isDemo ? redo : undefined}
-        canUndo={canUndo}
-        canRedo={canRedo}
+        onUndo={!isDemo ? undoSeating : undefined}
+        onRedo={!isDemo ? redoSeating : undefined}
+        canUndo={canUndoSeating}
+        canRedo={canRedoSeating}
         showGenderWarnings={showGenderWarnings}
         onToggleGenderWarnings={() => setShowGenderWarnings(v => !v)}
         showGenderHighlight={showGenderHighlight}
@@ -328,10 +317,10 @@ export default function MainApp({ isDemo = false }: MainAppProps) {
             onUpdateGuests={handleUpdateGuests}
             showGenderHighlight={showGenderHighlight}
             onToggleGenderHighlight={() => setShowGenderHighlight(v => !v)}
-            onUndo={!isDemo ? undo : undefined}
-            onRedo={!isDemo ? redo : undefined}
-            canUndo={canUndo}
-            canRedo={canRedo}
+            onUndo={!isDemo ? undoGuests : undefined}
+            onRedo={!isDemo ? redoGuests : undefined}
+            canUndo={canUndoGuests}
+            canRedo={canRedoGuests}
           />
         </div>
       </div>

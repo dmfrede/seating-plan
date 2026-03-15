@@ -60,7 +60,7 @@ interface GuestListProps {
   canRedo?: boolean;
 }
 
-type SortColumn = 'name' | 'surname' | 'age';
+type SortColumn = 'name' | 'surname' | 'age' | 'gender' | 'relationship' | 'partner' | 'notes' | 'table' | 'role';
 type FilterAssigned = 'all' | 'assigned' | 'unassigned';
 
 // Column header metadata
@@ -79,7 +79,13 @@ const COL_LABELS: Record<number, string> = {
 const SORTABLE_COLS: Record<number, SortColumn> = {
   [COL_NAME]: 'name',
   [COL_SURNAME]: 'surname',
+  [COL_GENDER]: 'gender',
   [COL_AGE]: 'age',
+  [COL_REL]: 'relationship',
+  [COL_PARTNER]: 'partner',
+  [COL_NOTES]: 'notes',
+  [COL_TABLE]: 'table',
+  [COL_ROLE]: 'role',
 };
 
 export default function GuestList({
@@ -99,6 +105,8 @@ export default function GuestList({
   const [draft, setDraft] = useState<DraftValues>(EMPTY_DRAFT);
   const [columnOrder, setColumnOrder] = useState<number[]>(loadColumnOrder);
   const [dragOverCol, setDragOverCol] = useState<number | null>(null);
+  const [sortFrozen, setSortFrozen] = useState(false);
+  const [sortedIdsSnapshot, setSortedIdsSnapshot] = useState<Set<string>>(new Set());
 
   const draftRef = useRef<DraftValues>(EMPTY_DRAFT);
   const onAddGuestRef = useRef(onAddGuest);
@@ -187,17 +195,65 @@ export default function GuestList({
     return true;
   });
 
-  const sorted = sortColumn
+  const baseSorted = sortColumn
     ? [...filtered].sort((a, b) => {
         const dir = sortDir === 'asc' ? 1 : -1;
-        if (sortColumn === 'age') return ((a.age ?? Infinity) - (b.age ?? Infinity)) * dir;
-        return (a[sortColumn] ?? '').localeCompare(b[sortColumn] ?? '') * dir;
+        switch (sortColumn) {
+          case 'name':    return (a.name ?? '').localeCompare(b.name ?? '') * dir;
+          case 'surname': return (a.surname ?? '').localeCompare(b.surname ?? '') * dir;
+          case 'gender':  return (a.gender ?? '').localeCompare(b.gender ?? '') * dir;
+          case 'age':     return ((a.age ?? Infinity) - (b.age ?? Infinity)) * dir;
+          case 'relationship': {
+            // undefined sorts last regardless of dir
+            if (!a.relationship && !b.relationship) return 0;
+            if (!a.relationship) return 1;
+            if (!b.relationship) return -1;
+            return a.relationship.localeCompare(b.relationship) * dir;
+          }
+          case 'partner': {
+            const aV = a.partnerId ? 0 : 1;
+            const bV = b.partnerId ? 0 : 1;
+            return (aV - bV) * dir;
+          }
+          case 'notes': {
+            // no notes sorts last regardless of dir
+            if (!a.notes && !b.notes) return 0;
+            if (!a.notes) return 1;
+            if (!b.notes) return -1;
+            return a.notes.localeCompare(b.notes) * dir;
+          }
+          case 'table': {
+            const aLabel = getTableLabel(a.id);
+            const bLabel = getTableLabel(b.id);
+            // unassigned sorts last regardless of dir
+            if (aLabel === null && bLabel === null) return 0;
+            if (aLabel === null) return 1;
+            if (bLabel === null) return -1;
+            return aLabel.localeCompare(bLabel) * dir;
+          }
+          case 'role': {
+            const aV = (a.roles?.length ?? 0) > 0 ? 0 : 1;
+            const bV = (b.roles?.length ?? 0) > 0 ? 0 : 1;
+            return (aV - bV) * dir;
+          }
+          default: return 0;
+        }
       })
     : filtered;
+
+  // Paste-freeze: when sortFrozen is true and a sort is active, newly pasted guests
+  // (those not in sortedIdsSnapshot) are appended at the bottom in insertion order.
+  const sorted = sortFrozen && sortColumn
+    ? [
+        ...baseSorted.filter(g => sortedIdsSnapshot.has(g.id)),
+        ...baseSorted.filter(g => !sortedIdsSnapshot.has(g.id)),
+      ]
+    : baseSorted;
 
   // ---- sort toggle ----
 
   function handleSort(col: SortColumn) {
+    setSortFrozen(false);
     if (sortColumn === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortColumn(col); setSortDir('asc'); }
   }
@@ -403,7 +459,12 @@ export default function GuestList({
     }
 
     if (existingUpdates.length > 0) onUpdateGuests(existingUpdates);
-    if (newGuests.length > 0) onAddGuests(newGuests);
+    if (newGuests.length > 0) {
+      // Freeze sort so newly pasted guests appear at the bottom, not scattered by the active sort
+      setSortedIdsSnapshot(new Set(guests.map(g => g.id)));
+      setSortFrozen(true);
+      onAddGuests(newGuests);
+    }
   }
 
   // ---- column drag reorder ----

@@ -15,11 +15,20 @@ export function useUndoRedo<T>(initialState: T) {
   const canUndo = state.index > 0;
   const canRedo = state.index < state.history.length - 1;
 
-  // Single setState call avoids the race condition between setHistory and setCurrentIndex
   const push = useCallback((newState: T) => {
     setState(prev => {
       const newHistory = prev.history.slice(0, prev.index + 1);
       return { history: [...newHistory, newState], index: prev.index + 1 };
+    });
+  }, []);
+
+  // Update the current snapshot in-place without creating a history entry.
+  // Used for continuous operations like table dragging.
+  const replace = useCallback((newState: T) => {
+    setState(prev => {
+      const newHistory = [...prev.history];
+      newHistory[prev.index] = newState;
+      return { ...prev, history: newHistory };
     });
   }, []);
 
@@ -41,5 +50,5 @@ export function useUndoRedo<T>(initialState: T) {
     setState({ history: [newState], index: 0 });
   }, []);
 
-  return { current, push, undo, redo, canUndo, canRedo, reset };
+  return { current, push, replace, undo, redo, canUndo, canRedo, reset };
 }
